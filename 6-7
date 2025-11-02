@@ -1,1 +1,120 @@
+!pip install torch torchvision torchaudio
+!pip install diffusers transformers accelerate scipy ftfy
+import torch
+from diffusers import StableDiffusionPipeline
+from torchvision import transforms
+from PIL import Image
+import numpy as np
+from scipy import linalg
+import matplotlib.pyplot as plt
+model_id = "runwayml/stable-diffusion-v1-5"
+pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
+pipe = pipe.to("cuda")
+prompt = "a beautiful landscape with mountains and sunset"
+print("Generating image for prompt:", prompt)
+image = pipe(prompt).images[0]
+image.save("generated_image.png")
+plt.imshow(image)
+plt.axis("off")
+plt.show()
+def calculate_fid(real_images, generated_images):
+    """Simple FID implementation using feature vectors."""
+    mu1, sigma1 = real_images.mean(axis=0), np.cov(real_images, rowvar=False)
+    mu2, sigma2 = generated_images.mean(axis=0), np.cov(generated_images, rowvar=False)
+    ssdiff = np.sum((mu1 - mu2)**2.0)
+    covmean = linalg.sqrtm(sigma1.dot(sigma2))
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
+    return fid
+real_features = np.random.rand(100, 2048)
+gen_features = np.random.rand(100, 2048)
+fid_score = calculate_fid(real_features, gen_features)
+print(f"\nFID Score (demo): {fid_score:.2f}")
+
+
+!pip install transformers datasets peft -q
+from datasets import Dataset
+import os
+os.environ["WANDB_DISABLED"] = "true"  # Disable W&B logging
+data = {
+    'text': [
+        "The moon is bright and calm.",
+        "Stars twinkle beautifully at night.",
+        "The sun rises in the east and sets in the west.",
+        "Rain falls gently on the green leaves.",
+        "The world is full of wonders to explore."
+    ]
+}
+dataset = Dataset.from_dict(data)
+from transformers import AutoModelForCausalLM, GPT2Tokenizer
+tokenizer = GPT2Tokenizer.from_pretrained("distilgpt2")
+tokenizer.pad_token = tokenizer.eos_token
+model = AutoModelForCausalLM.from_pretrained("distilgpt2")
+model.resize_token_embeddings(len(tokenizer))
+from peft import LoraConfig, get_peft_model
+lora_config = LoraConfig(
+    r=4,
+    lora_alpha=32,
+    lora_dropout=0.1,
+    target_modules=["c_attn", "c_proj"]
+)
+lora_model = get_peft_model(model, lora_config)
+def tokenize_func(examples):
+    return tokenizer(
+        examples['text'],
+        truncation=True,
+        padding='max_length',
+        max_length=64
+    )
+tokenized_ds = dataset.map(tokenize_func, batched=True)
+from transformers import Trainer, TrainingArguments, DataCollatorForLanguageModeling
+data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+training_args = TrainingArguments(
+    output_dir="./results",
+    per_device_train_batch_size=2,
+    num_train_epochs=3,
+    logging_dir="./logs",
+    logging_strategy="epoch",
+    save_steps=10,
+    save_total_limit=2,
+    prediction_loss_only=True,
+    report_to="none"
+)
+
+trainer = Trainer(
+    model=lora_model,
+    args=training_args,
+    data_collator=data_collator,
+    train_dataset=tokenized_ds
+)
+trainer.train()
+import torch
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+lora_model.to(device)
+prompt = "Early morning,"
+inputs = tokenizer(prompt, return_tensors="pt").to(device)
+output = lora_model.generate(
+    **inputs,
+    max_length=50,
+    do_sample=True,
+    top_p=0.95,
+    temperature=0.9
+)
+generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+print("\nGenerated Text:\n", generated_text)
+from math import exp
+def calculate_perplexity(model, tokenizer, sentence):
+    encodings = tokenizer(sentence, return_tensors='pt').to(device)
+    with torch.no_grad():
+        outputs = model(**encodings, labels=encodings.input_ids)
+        loss = outputs.loss.item()
+    return exp(loss)
+perplexity_score = calculate_perplexity(lora_model, tokenizer, prompt)
+print("\nPerplexity:", perplexity_score)
+
+
+
+
+
 
