@@ -1,0 +1,76 @@
+# !pip install gensim faiss-cpu numpy
+
+import numpy as np
+import faiss
+from gensim.models import Word2Vec
+from numpy import dot
+from numpy.linalg import norm
+corpus = [
+    "king and queen rule the kingdom",
+    "man and woman are humans",
+    "paris is the capital of france",
+    "rome is the capital of italy",
+    "the cat sat on the mat",
+    "dogs and cats are friendly animals",
+    "the prime minister leads the government",
+    "the president governs the nation",
+    "lions and tigers are wild animals",
+    "the teacher teaches students in school"
+]
+sentences = [sentence.lower().split() for sentence in corpus]
+model = Word2Vec(
+    sentences,
+    vector_size=50,   # Embedding dimension
+    window=3,         # Context window
+    min_count=1,      # Include all words
+    sg=1,             # Skip-gram model
+    epochs=200        # More epochs = better embeddings
+)
+print("Word2Vec training complete.\n")
+words = list(model.wv.key_to_index.keys())
+vectors = np.array([model.wv[word] for word in words]).astype('float32')
+dimension = vectors.shape[1]
+index = faiss.IndexFlatL2(dimension)   # Using L2 distance
+index.add(vectors)
+print(f"FAISS index built with {index.ntotal} words.\n")
+def find_similar(word, top_k=5):
+    if word not in model.wv:
+        print(f"'{word}' not in vocabulary.\n")
+        return
+    vec = np.array([model.wv[word]]).astype('float32')
+    distances, indices = index.search(vec, top_k)
+    
+    print(f"Top {top_k} words similar to '{word}':")
+    for i, idx in enumerate(indices[0]):
+        print(f"  {words[idx]} (distance = {distances[0][i]:.4f})")
+    print()
+    
+find_similar("king")
+find_similar("cat")
+find_similar("france")
+
+
+
+
+"""Pre-trained Diffusion Model Inference"""
+from diffusers import DDPMPipeline
+import matplotlib.pyplot as plt
+# pip install diffusers
+# Load pre-trained model
+print("Loading pre-trained DDPM...")
+pipeline = DDPMPipeline.from_pretrained("google/ddpm-celebahq-256")
+# Generate a single image
+print("Generating image...")
+images = pipeline(
+    batch_size=1,
+    num_inference_steps=10,
+    output_type="pil"
+).images
+# Display
+fig, ax = plt.subplots(figsize=(8, 8))
+ax.imshow(images[0])
+ax.axis('off')
+plt.suptitle('Generated Image from Pre-trained DDPM')
+plt.tight_layout()
+plt.show()
+print("Done!")
