@@ -60,5 +60,7 @@ plt.show()
 sns.pairplot(iris, hue="species")
 plt.suptitle("Pairplot of Iris Dataset", y=1.02)
 plt.show()
-
 print(df.head())
+
+
+
